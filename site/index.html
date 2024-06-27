@@ -1,37 +1,168 @@
-<!DOCTYPE html>
-
+﻿<!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>NGINX on Railway</title>
-    <meta name="description" content="Choo Choo!" />
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Current Time by City</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background-color: #f0f0f0;
+        }
 
-    <link rel="icon" href="/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+        #finalTime {
+            font-size: 4em;
+            background: #fff;
+            padding: 50px;
+            border-radius: 50px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-top: 15px;
+        }
 
-    <link rel="stylesheet" href="/styles.css?v=1.0" />
-  </head>
+        #finalTime {
+            font-size: 6em;
+            font-weight: bold;
+            background: #ffdd57;
+        }
 
-  <body>
-    <main>
-      <img
-        src="https://railway.app/brand/logo-light.svg"
-        alt="Railway logo"
-        class="logo"
-      />
+        #clock, #sunriseTime {
+            font-size: 1em;
+            background: #fff;
+            padding: 10px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            margin-top: 15px;
+        }
 
-      <h1>NGINX on Railway</h1>
 
-      <p>
-        Choo Choo! This is an example of an NGINX static site running on
-        Railway.
-        <a
-          href="https://github.com/railwayapp/starters/tree/master/examples/nginx"
-          >View source</a
-        >.
-      </p>
-    </main>
+        #cityInput, #desiredSunriseInput {
+            font-size: 1em;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            margin-top: 15px;
+        }
 
-    <script src="/script.js"></script>
-  </body>
+        #setTimeZone, #setDesiredSunrise {
+            padding: 5px 10px;
+            font-size: 1.2em;
+            margin-top: 15px;
+            cursor: pointer;
+            border: none;
+            border-radius: 5px;
+            background-color: #007bff;
+            color: white;
+        }
+
+        #debug {
+            margin-top: 15px;
+            color: red;
+            font-size: 1em;
+        }
+    </style>
+</head>
+<body>
+    <div id="finalTime"></div>
+    <input type="text" id="cityInput" placeholder="Enter city name" />
+    <button id="setTimeZone">Set Time Zone</button>
+    <div id="clock"></div>
+    <div id="sunriseTime"></div>
+    <input type="time" id="desiredSunriseInput" />
+    <button id="setDesiredSunrise">Save Desired Sunrise Time</button>
+
+    <div id="debug"></div>
+
+    <script>let timeZone = 'UTC';
+        let desiredSunriseTime = '';
+        let sunriseTime = null;
+        let finalOffset = 0;
+
+        function updateTime() {
+            const options = { timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+            const now = new Date().toLocaleTimeString('en-GB', options);
+            document.getElementById('clock').textContent = `Current time: ${now}`;
+
+            if (sunriseTime && desiredSunriseTime) {
+                const finalTime = new Date(new Date().getTime() + finalOffset * 60000).toLocaleTimeString('en-GB', options);
+                document.getElementById('finalTime').textContent = `${finalTime}`;
+                document.title = `${finalTime}`; // Update the tab title with the final time
+            }
+        }
+
+        async function setTimeZone() {
+            const city = document.getElementById('cityInput').value;
+            const debugElement = document.getElementById('debug');
+            const sunriseElement = document.getElementById('sunriseTime');
+            debugElement.textContent = ''; // Clear previous messages
+            sunriseElement.textContent = ''; // Clear previous sunrise time
+
+            try {
+                // Fetch timezones
+                const response = await fetch(`http://worldtimeapi.org/api/timezone`);
+                const timezones = await response.json();
+                const matchingTimeZone = timezones.find(tz => tz.toLowerCase().includes(city.toLowerCase()));
+
+                if (matchingTimeZone) {
+                    timeZone = matchingTimeZone;
+                    debugElement.textContent = `Timezone set to: ${timeZone}`;
+                    updateTime();
+
+                    // Fetch coordinates of the city using OpenCage Geocoding API
+                    const geoResponse = await fetch(`https://api.opencagedata.com/geocode/v1/json?q=${encodeURIComponent(city)}&key=e46dfc37098d434a942cf18842c9705d`);
+                    const geoData = await geoResponse.json();
+                    if (geoData.results.length > 0) {
+                        const { lat, lng } = geoData.results[0].geometry;
+
+                        // Fetch sunrise time using the coordinates
+                        const sunriseResponse = await fetch(`https://api.sunrise-sunset.org/json?lat=${lat}&lng=${lng}&formatted=0`);
+                        const sunriseData = await sunriseResponse.json();
+                        if (sunriseData.status === 'OK') {
+                            sunriseTime = new Date(sunriseData.results.sunrise);
+                            sunriseElement.textContent = `Sunrise time: ${sunriseTime.toLocaleTimeString('en-GB', { timeZone, hour12: false })}`;
+                        } else {
+                            sunriseElement.textContent = 'Could not fetch sunrise time.';
+                        }
+                    } else {
+                        debugElement.textContent = 'Could not fetch coordinates for the city.';
+                    }
+                } else {
+                    debugElement.textContent = 'City not found. Please try again.';
+                }
+            } catch (error) {
+                debugElement.textContent = 'Error fetching timezone or sunrise time. Please try again.';
+                console.error('Error fetching timezone or sunrise time:', error);
+            }
+        }
+
+        function saveDesiredSunriseTime() {
+            const desiredTime = document.getElementById('desiredSunriseInput').value;
+            if (desiredTime && sunriseTime) {
+                desiredSunriseTime = desiredTime;
+                const desiredSunriseDate = new Date();
+                const [hours, minutes] = desiredSunriseTime.split(':').map(Number);
+                desiredSunriseDate.setHours(hours, minutes, 0);
+
+                // Calculate the difference in minutes
+                const difference = (desiredSunriseDate - sunriseTime) / 60000;
+                finalOffset = difference;
+
+                document.getElementById('debug').textContent = `Desired sunrise time saved: ${desiredSunriseTime}`;
+                updateTime();
+            } else {
+                document.getElementById('debug').textContent = 'Please enter a valid time and ensure sunrise time is available.';
+            }
+        }
+
+        document.getElementById('setTimeZone').addEventListener('click', setTimeZone);
+        document.getElementById('setDesiredSunrise').addEventListener('click', saveDesiredSunriseTime);
+
+        setInterval(updateTime, 1000);
+        updateTime(); // initial call to display the time immediately</script>
+</body>
 </html>
